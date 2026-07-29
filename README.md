@@ -7,7 +7,9 @@
 Removes the hardcoded **25-item** and **4 MB** limits from Windows' native clipboard history (`Win+V`).
 Pure PowerShell, zero external dependencies — either run it as a script, or grab the one-click GUI `.exe`.
 
-> ⚠️ **Memory-only patch.** It lives until reboot. Enable auto-start (GUI checkbox, or `Install-Persistence.ps1`) to re-apply it at every logon.
+> ⚠️ **Memory-only patch.** It lives until reboot with enabled auto-start by default in GUI to re-apply it at every logon.
+<img width="805" height="938" alt="image" src="https://github.com/user-attachments/assets/7c2bc22a-793d-454f-82b1-5810b7ff6bae" />
+
 
 ## Download
 
