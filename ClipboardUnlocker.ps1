@@ -255,9 +255,9 @@ public class MemPatcher {
             bool isWritable = (mbi.State == MEM_COMMIT) && (mbi.Protect == PAGE_READWRITE);
             if (isWritable && regionSize <= maxRegionBytes) {
                 const int chunkSize = 4 * 1024 * 1024;
+                byte[] buf = new byte[chunkSize];   // reused across chunks (avoids per-chunk GC churn)
                 for (long pos = 0; pos < regionSize; pos += chunkSize) {
                     int toRead = (int)Math.Min((long)chunkSize, regionSize - pos);
-                    byte[] buf = new byte[toRead];
                     int rd;
                     IntPtr chunkBase = new IntPtr(mbi.BaseAddress.ToInt64() + pos);
                     if (ReadProcessMemory(hProcess, chunkBase, buf, toRead, out rd)) {
@@ -300,7 +300,8 @@ function Invoke-PatchProcess {
     if (-not $proc) { return 0 }
     $mod = $proc.Modules | Where-Object { $_.ModuleName -eq 'CBDHSvc.dll' } | Select-Object -First 1
     if (-not $mod) { return 0 }
-    $h = [MemPatcher]::OpenProcess(0x001F0FFF, $false, $TargetPid)   # PROCESS_ALL_ACCESS
+    # Least privilege: VM_OPERATION|VM_READ|VM_WRITE|QUERY_INFORMATION (not PROCESS_ALL_ACCESS).
+    $h = [MemPatcher]::OpenProcess(0x0438, $false, $TargetPid)
     if ($h -eq [IntPtr]::Zero) { return 0 }
 
     $base = $mod.BaseAddress.ToInt64()
@@ -652,6 +653,7 @@ $form.Controls.Add($lnkRemove)
 # --- behaviour ---
 $doApply = {
     $btnApply.Enabled = $false; $btnApply.Text = 'Working...'
+    $numLimit.Enabled = $false; $numSize.Enabled = $false
     try {
         $lim = [int]$numLimit.Value
         $sz = [int]$numSize.Value
@@ -668,6 +670,7 @@ $doApply = {
         $btnApply.Text = 'APPLY'
     } finally {
         $btnApply.Enabled = $true
+        $numLimit.Enabled = $true; $numSize.Enabled = $true
         $t = New-Object System.Windows.Forms.Timer
         $t.Interval = 1800
         $t.Add_Tick({ $btnApply.BackColor = $cAccent; $btnApply.Text = 'APPLY'; $this.Stop(); $this.Dispose() })

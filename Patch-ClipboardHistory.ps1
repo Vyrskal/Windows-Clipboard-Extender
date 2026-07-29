@@ -151,7 +151,6 @@ public class MemPatcher {
         public IntPtr RegionSize; public uint State; public uint Protect; public uint Type;
     }
     
-    const int ALL = 0x001F0FFF;
     const uint MEM_COMMIT = 0x1000;
     const uint PAGE_READWRITE = 0x04;
     
@@ -177,9 +176,9 @@ public class MemPatcher {
             bool isWritable = (mbi.State == MEM_COMMIT) && (mbi.Protect == PAGE_READWRITE);
             if (isWritable && regionSize <= maxRegionBytes) {
                 const int chunkSize = 4 * 1024 * 1024;
+                byte[] buf = new byte[chunkSize];   // reused across chunks (avoids per-chunk GC churn)
                 for (long pos = 0; pos < regionSize; pos += chunkSize) {
                     int toRead = (int)Math.Min((long)chunkSize, regionSize - pos);
-                    byte[] buf = new byte[toRead];
                     int rd;
                     IntPtr chunkBase = new IntPtr(mbi.BaseAddress.ToInt64() + pos);
                     if (ReadProcessMemory(hProcess, chunkBase, buf, toRead, out rd)) {
@@ -270,7 +269,8 @@ function Invoke-ProcessPatch {
     $mod = $proc.Modules | Where-Object { $_.ModuleName -eq 'CBDHSvc.dll' } | Select-Object -First 1
     if (-not $mod) { return 0 }
     
-    $h = [MemPatcher]::OpenProcess(0x001F0FFF, $false, $TargetPid)
+    # Least privilege: VM_OPERATION|VM_READ|VM_WRITE|QUERY_INFORMATION (not PROCESS_ALL_ACCESS).
+    $h = [MemPatcher]::OpenProcess(0x0438, $false, $TargetPid)
     if ($h -eq [IntPtr]::Zero) { return 0 }
     
     $base = $mod.BaseAddress.ToInt64()
