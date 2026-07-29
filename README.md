@@ -64,7 +64,7 @@ powershell -ExecutionPolicy Bypass -File .\ClipboardUnlocker.ps1 -Silent -Limit 
 
 Improvements over the raw scripts below:
 
-- **Auto-start = scheduled task at logon** (`RunLevel Highest`) — runs silently and elevated with no UAC popup. Both the GUI and `Install-Persistence.ps1` now use this; the old Startup-folder VBS launcher (unelevated, more AV-prone) has been retired and is cleaned up automatically on install/uninstall.
+- **Auto-start = scheduled task at logon** (`RunLevel Highest`) — runs silently and elevated with no UAC popup. The GUI and `Install-Persistence.ps1` register the same `ClipboardUnlocker` task, so either entry point (and removing it) behaves identically.
 - **Auto-elevation** — the exe's manifest requests UAC itself; no need to "run as administrator" manually.
 - **Configurable item-size limit** (`-SizeLimitMB`, default 64) instead of a hardcoded value.
 - **Cleaner service restart** — tries `Start-Service` first, only falls back to the `Win+V` nudge if needed.
