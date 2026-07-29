@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)](#requirements)
-[![Release](https://img.shields.io/github/v/release/Vyrskal/Windows-Clipboard-Patcher)](https://github.com/Vyrskal/Windows-Clipboard-Patcher/releases/latest)
+[![Release](https://img.shields.io/github/v/release/Vyrskal/Windows-Clipboard-Extender)](https://github.com/Vyrskal/Windows-Clipboard-Extender/releases/latest)
 
 Removes the hardcoded **25-item** and **4 MB** limits from Windows' native clipboard history (`Win+V`).
 Pure PowerShell, zero external dependencies — either run it as a script, or grab the one-click GUI `.exe`.
@@ -13,7 +13,7 @@ Pure PowerShell, zero external dependencies — either run it as a script, or gr
 
 ## Download
 
-Grab the latest build from **[Releases](https://github.com/Vyrskal/Windows-Clipboard-Patcher/releases/latest)** — `ClipboardUnlocker.exe`, no install needed.
+Grab the latest build from **[Releases](https://github.com/Vyrskal/Windows-Clipboard-Extender/releases/latest)** — `ClipboardUnlocker.exe`, no install needed.
 
 1. Download `ClipboardUnlocker.exe`.
 2. Double-click it → accept the UAC prompt.

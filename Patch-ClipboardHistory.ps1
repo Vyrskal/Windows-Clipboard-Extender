@@ -229,7 +229,7 @@ if ($info.CountCandidates -eq 0) {
 
 Could not locate the clipboard item-count constructor in $dllPath.
 This Windows build is not supported yet. Please open an issue with the fingerprint below:
-  https://github.com/Vyrskal/Windows-Clipboard-Patcher/issues
+  https://github.com/Vyrskal/Windows-Clipboard-Extender/issues
   File version : $fileVer
   .text SHA256 : $($info.TextHash)
 "@
@@ -241,7 +241,7 @@ if ($info.CountCandidates -gt 1) {
 Ambiguous match: found $($info.CountCandidates) candidate constructor sites in $dllPath.
 Refusing to patch -- writing to the wrong site could corrupt the clipboard service.
 Please open an issue so an exact recipe can be added for this build:
-  https://github.com/Vyrskal/Windows-Clipboard-Patcher/issues
+  https://github.com/Vyrskal/Windows-Clipboard-Extender/issues
   File version : $fileVer
   .text SHA256 : $($info.TextHash)
 "@
