@@ -320,40 +320,42 @@ function Invoke-PatchProcess {
 
     $base = $mod.BaseAddress.ToInt64()
     $patched = 0
+    try {
+        # (1) count constructor: mov eax, <ItemLimit>
+        $countAddr = $base + $Info.CountRva
+        $pb = [byte[]](0xB8, ($ItemLimit -band 0xFF), (($ItemLimit -shr 8) -band 0xFF), (($ItemLimit -shr 16) -band 0xFF), (($ItemLimit -shr 24) -band 0xFF))
+        if ([MemPatcher]::PatchAt($h, $countAddr, $pb)) {
+            Write-Log ("Patched count constructor @ 0x{0:X}" -f $countAddr) 'ok'
+            $patched++
+        }
 
-    # (1) count constructor: mov eax, <ItemLimit>
-    $countAddr = $base + $Info.CountRva
-    $pb = [byte[]](0xB8, ($ItemLimit -band 0xFF), (($ItemLimit -shr 8) -band 0xFF), (($ItemLimit -shr 16) -band 0xFF), (($ItemLimit -shr 24) -band 0xFF))
-    if ([MemPatcher]::PatchAt($h, $countAddr, $pb)) {
-        Write-Log ("Patched count constructor @ 0x{0:X}" -f $countAddr) 'ok'
-        $patched++
-    }
+        # (2) size caps: overwrite the 4MB/5MB immediates in the constructor (mov [reg+disp], imm32)
+        $s4 = [BitConverter]::GetBytes([uint32]$Size4)
+        $s5 = [BitConverter]::GetBytes([uint32]$Size5)
+        if ($Info.Size4Rva -and [MemPatcher]::PatchAt($h, $base + $Info.Size4Rva, $s4)) {
+            Write-Log ("Patched 4MB size cap @ 0x{0:X}" -f ($base + $Info.Size4Rva)) 'ok'
+            $patched++
+        }
+        if ($Info.Size5Rva -and [MemPatcher]::PatchAt($h, $base + $Info.Size5Rva, $s5)) {
+            Write-Log ("Patched 5MB size cap @ 0x{0:X}" -f ($base + $Info.Size5Rva)) 'ok'
+            $patched++
+        }
 
-    # (2) size caps: overwrite the 4MB/5MB immediates in the constructor (mov [reg+disp], imm32)
-    $s4 = [BitConverter]::GetBytes([uint32]$Size4)
-    $s5 = [BitConverter]::GetBytes([uint32]$Size5)
-    if ($Info.Size4Rva -and [MemPatcher]::PatchAt($h, $base + $Info.Size4Rva, $s4)) {
-        Write-Log ("Patched 4MB size cap @ 0x{0:X}" -f ($base + $Info.Size4Rva)) 'ok'
-        $patched++
+        # (3) live structs (immediate effect): count + size fields, using the offsets the PE
+        #     parser detected for this build -- the struct layout shifts between Windows versions.
+        $co = @($Info.FieldOffsets)
+        $oc1 = [int]$co[0]
+        $oc2 = if ($co.Count -ge 2) { [int]$co[1] } else { [int]$co[0] }
+        $live = [MemPatcher]::PatchLiveStructs($h, [uint32]$ItemLimit, [uint32]$Size4, [uint32]$Size5,
+                                               [int]$Info.Size4Off, [int]$Info.Size5Off, $oc1, $oc2, 100)
+        if ($live -gt 0) {
+            Write-Log "Patched $live live struct(s)" 'ok'
+            $patched += $live
+        }
+    } finally {
+        # Always release the process handle, even if a patch step throws.
+        [MemPatcher]::CloseHandle($h) | Out-Null
     }
-    if ($Info.Size5Rva -and [MemPatcher]::PatchAt($h, $base + $Info.Size5Rva, $s5)) {
-        Write-Log ("Patched 5MB size cap @ 0x{0:X}" -f ($base + $Info.Size5Rva)) 'ok'
-        $patched++
-    }
-
-    # (3) live structs (immediate effect): count + size fields, using the offsets the PE
-    #     parser detected for this build -- the struct layout shifts between Windows versions.
-    $co = @($Info.FieldOffsets)
-    $oc1 = [int]$co[0]
-    $oc2 = if ($co.Count -ge 2) { [int]$co[1] } else { [int]$co[0] }
-    $live = [MemPatcher]::PatchLiveStructs($h, [uint32]$ItemLimit, [uint32]$Size4, [uint32]$Size5,
-                                           [int]$Info.Size4Off, [int]$Info.Size5Off, $oc1, $oc2, 100)
-    if ($live -gt 0) {
-        Write-Log "Patched $live live struct(s)" 'ok'
-        $patched += $live
-    }
-
-    [MemPatcher]::CloseHandle($h) | Out-Null
     return $patched
 }
 
@@ -372,7 +374,7 @@ function Invoke-ClipboardPatch {
     Write-Log "=== Starting patch: limit=$ItemLimit, size=$SizeMB MB ===" 'info'
     Initialize-MemPatcher
 
-    $dll = Join-Path $env:SystemRoot 'System32\cbdhsvc.dll'
+    $dll = Join-Path ([Environment]::SystemDirectory) 'cbdhsvc.dll'
     Write-Log "Analyzing $dll ..." 'info'
     $fileVer = try { (Get-Item -LiteralPath $dll).VersionInfo.FileVersion } catch { '?' }
     $info = Get-CbdhPatchInfo -Path $dll
@@ -415,10 +417,14 @@ function Invoke-ClipboardPatch {
     Stop-Service $svc.Name -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
     try { Start-Service $svc.Name -ErrorAction Stop } catch {
-        try {
-            $shell = New-Object -ComObject wscript.shell
-            $shell.SendKeys('#v'); Start-Sleep -Seconds 2; $shell.SendKeys('{ESC}'); Start-Sleep -Seconds 1
-        } catch { }
+        # Fallback nudge only when interactive -- never SendKeys headlessly (the scheduled task
+        # runs at the logon/lock screen, where a stray Win+V could land in the wrong window).
+        if (-not $Silent) {
+            try {
+                $shell = New-Object -ComObject wscript.shell
+                $shell.SendKeys('#v'); Start-Sleep -Seconds 2; $shell.SendKeys('{ESC}'); Start-Sleep -Seconds 1
+            } catch { }
+        }
     }
     Start-Sleep -Seconds 1
 

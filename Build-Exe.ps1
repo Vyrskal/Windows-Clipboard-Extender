@@ -11,7 +11,7 @@ param(
     [string] $InputFile  = (Join-Path $PSScriptRoot 'ClipboardUnlocker.ps1'),
     [string] $OutputFile = (Join-Path $PSScriptRoot 'ClipboardUnlocker.exe'),
     [string] $IconFile   = (Join-Path $PSScriptRoot 'ClipboardUnlocker.ico'),
-    [string] $Version    = '2.2.0.0'
+    [string] $Version    = '2.2.1.0'
 )
 
 $ErrorActionPreference = 'Stop'
