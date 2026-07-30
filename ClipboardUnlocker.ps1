@@ -87,7 +87,7 @@ function Invoke-SelfElevation {
             Start-Process -FilePath 'powershell.exe' -ArgumentList $psArgs -Verb RunAs
         }
     } catch {
-        # user declined UAC
+        Write-Log "Elevation failed or was declined: $($_.Exception.Message)" 'warn'
     }
     exit
 }
@@ -430,6 +430,17 @@ function Invoke-ClipboardPatch {
 
     $svc = Get-Service | Where-Object { $_.Name -like 'cbdhsvc_*' } | Select-Object -First 1
     if ($svc.Status -ne 'Running') { Start-Service $svc.Name -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+
+    # Last resort: cbdhsvc is a per-user service that occasionally wedges on Stop-Service.
+    # Kill the old worker by PID so the SCM respawns it, then start again.
+    $svc = Get-Service | Where-Object { $_.Name -like 'cbdhsvc_*' } | Select-Object -First 1
+    if ($svc.Status -ne 'Running' -and $pid1 -gt 0) {
+        Write-Log "Service stuck; killing PID $pid1 so it respawns..." 'warn'
+        Stop-Process -Id $pid1 -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Start-Service $svc.Name -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
 
     $pid2 = Get-CbdPid $svc.Name
     Write-Log "New PID: $pid2" 'info'
