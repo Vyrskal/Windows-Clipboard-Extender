@@ -4,11 +4,13 @@
     clipboard history (Win+V). A GUI wrapper over the in-memory cbdhsvc patcher.
 
 .DESCRIPTION
-    Run modes:
-      (no args)  -> shows the GUI window
-      -Silent    -> applies the patch headless (used by the logon scheduled task)
+    Self-contained tool: a self-adapting PE parser + in-memory cbdhsvc patcher with a GUI.
 
-    Engine (PE parser + memory patcher) is based on Patch-ClipboardHistory.ps1.
+    Run modes:
+      (no args)    -> shows the GUI window
+      -Silent      -> applies the patch headless (used by the logon scheduled task)
+      -Install     -> registers the logon auto-start task, then exits
+      -Uninstall   -> removes the logon auto-start task, then exits
 
 .PARAMETER Silent
     Apply the patch without the GUI and exit. Used by the scheduled task at logon.
@@ -17,10 +19,16 @@
     New maximum number of history items (1..65535). Default 255.
 
 .PARAMETER SizeLimitMB
-    New maximum size of a single item, in MB. Default 64.
+    New maximum size of a single item, in MB (1..512). Default 64.
+
+.PARAMETER Install
+    Register the "ClipboardUnlocker" logon scheduled task (headless), then exit.
+
+.PARAMETER Uninstall
+    Remove the "ClipboardUnlocker" logon scheduled task, then exit.
 
 .NOTES
-    Requires administrator rights (the exe is built with a requireAdmin manifest).
+    Requires administrator rights (self-elevates; the exe carries a requireAdmin manifest).
 #>
 [CmdletBinding()]
 param(
@@ -29,7 +37,9 @@ param(
     [int]    $Limit = 255,
     [ValidateRange(1, 512)]
     [int]    $SizeLimitMB = 64,
-    [switch] $Elevated   # internal guard against relaunch loops
+    [switch] $Install,     # register the logon auto-start task, then exit
+    [switch] $Uninstall,   # remove the logon auto-start task, then exit
+    [switch] $Elevated     # internal guard against relaunch loops
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,7 +74,9 @@ function Invoke-SelfElevation {
     if ($Elevated) { return }   # already tried once
     $self = Get-SelfInfo
     $argList = @('-Elevated')
-    if ($Silent) { $argList += '-Silent' }
+    if ($Silent)    { $argList += '-Silent' }
+    if ($Install)   { $argList += '-Install' }
+    if ($Uninstall) { $argList += '-Uninstall' }
     $argList += @('-Limit', $Limit, '-SizeLimitMB', $SizeLimitMB)
 
     try {
@@ -254,30 +266,32 @@ public class MemPatcher {
             long regionSize = mbi.RegionSize.ToInt64();
             bool isWritable = (mbi.State == MEM_COMMIT) && (mbi.Protect == PAGE_READWRITE);
             if (isWritable && regionSize <= maxRegionBytes) {
-                const int chunkSize = 4 * 1024 * 1024;
-                byte[] buf = new byte[chunkSize];   // reused across chunks (avoids per-chunk GC churn)
-                for (long pos = 0; pos < regionSize; pos += chunkSize) {
-                    int toRead = (int)Math.Min((long)chunkSize, regionSize - pos);
-                    int rd;
-                    IntPtr chunkBase = new IntPtr(mbi.BaseAddress.ToInt64() + pos);
-                    if (ReadProcessMemory(hProcess, chunkBase, buf, toRead, out rd)) {
-                        int limit = rd - (maxOff + 4);
-                        for (int i = 0; i <= limit; i += 8) {
-                            if (BitConverter.ToUInt32(buf, i + o4)  == 0x00400000 &&
-                                BitConverter.ToUInt32(buf, i + o5)  == 0x00500000 &&
-                                BitConverter.ToUInt32(buf, i + oc1) == 0x19 &&
-                                BitConverter.ToUInt32(buf, i + oc2) == 0x19) {
-                                long b0 = chunkBase.ToInt64() + i;
-                                int w4, w5, w1, w2;
-                                WriteProcessMemory(hProcess, new IntPtr(b0 + o4),  size4Bytes, 4, out w4);
-                                WriteProcessMemory(hProcess, new IntPtr(b0 + o5),  size5Bytes, 4, out w5);
-                                WriteProcessMemory(hProcess, new IntPtr(b0 + oc1), valBytes,   4, out w1);
-                                WriteProcessMemory(hProcess, new IntPtr(b0 + oc2), valBytes,   4, out w2);
-                                if (w4 == 4 && w5 == 4 && w1 == 4 && w2 == 4) patched++;
+                try {
+                    const int chunkSize = 4 * 1024 * 1024;
+                    byte[] buf = new byte[chunkSize];   // reused across chunks (avoids per-chunk GC churn)
+                    for (long pos = 0; pos < regionSize; pos += chunkSize) {
+                        int toRead = (int)Math.Min((long)chunkSize, regionSize - pos);
+                        int rd;
+                        IntPtr chunkBase = new IntPtr(mbi.BaseAddress.ToInt64() + pos);
+                        if (ReadProcessMemory(hProcess, chunkBase, buf, toRead, out rd)) {
+                            int limit = rd - (maxOff + 4);
+                            for (int i = 0; i <= limit; i += 8) {
+                                if (BitConverter.ToUInt32(buf, i + o4)  == 0x00400000 &&
+                                    BitConverter.ToUInt32(buf, i + o5)  == 0x00500000 &&
+                                    BitConverter.ToUInt32(buf, i + oc1) == 0x19 &&
+                                    BitConverter.ToUInt32(buf, i + oc2) == 0x19) {
+                                    long b0 = chunkBase.ToInt64() + i;
+                                    int w4, w5, w1, w2;
+                                    WriteProcessMemory(hProcess, new IntPtr(b0 + o4),  size4Bytes, 4, out w4);
+                                    WriteProcessMemory(hProcess, new IntPtr(b0 + o5),  size5Bytes, 4, out w5);
+                                    WriteProcessMemory(hProcess, new IntPtr(b0 + oc1), valBytes,   4, out w1);
+                                    WriteProcessMemory(hProcess, new IntPtr(b0 + oc2), valBytes,   4, out w2);
+                                    if (w4 == 4 && w5 == 4 && w1 == 4 && w2 == 4) patched++;
+                                }
                             }
                         }
                     }
-                }
+                } catch { /* skip a region that can't be safely read/written; keep scanning */ }
             }
             addr = new IntPtr(mbi.BaseAddress.ToInt64() + regionSize);
         }
@@ -464,6 +478,22 @@ if ($Silent) {
     if (-not (Test-IsAdmin)) { Invoke-SelfElevation }
     try { Invoke-ClipboardPatch -ItemLimit $Limit -SizeMB $SizeLimitMB | Out-Null }
     catch { Write-Log "Error: $($_.Exception.Message)" 'err' }
+    return
+}
+
+# ============================================================
+#  HEADLESS PERSISTENCE TOGGLES (no GUI)
+# ============================================================
+if ($Install) {
+    if (-not (Test-IsAdmin)) { Invoke-SelfElevation }
+    try { Install-Persistence; Write-Host "Auto-start enabled (task 'ClipboardUnlocker' runs at logon)." }
+    catch { Write-Host "Error: $($_.Exception.Message)" }
+    return
+}
+if ($Uninstall) {
+    if (-not (Test-IsAdmin)) { Invoke-SelfElevation }
+    try { Uninstall-Persistence; Write-Host "Auto-start removed." }
+    catch { Write-Host "Error: $($_.Exception.Message)" }
     return
 }
 

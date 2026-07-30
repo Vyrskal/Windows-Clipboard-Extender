@@ -48,45 +48,47 @@ The disk parser was validated against real `cbdhsvc.dll` binaries spanning every
 
 The layout held steady across all of Windows 10 and early Windows 11; only 24H2 moved things — every field shifted by `+0x08`, which the parser adapts to automatically instead of writing to the wrong offset. (Detection is verified on all the above; the live memory write is confirmed on Windows 10.)
 
-## Two ways to use it
+## Usage
 
-### GUI (recommended) — `ClipboardUnlocker.exe` / `ClipboardUnlocker.ps1`
+`ClipboardUnlocker.exe` and the raw `ClipboardUnlocker.ps1` are the **same tool** — a GUI by default, or headless via switches. One engine, one file.
 
-One window, item-count and item-size (MB) fields — each with presets — an **APPLY** button, an auto-start checkbox, and a live log.
+### GUI (recommended)
+
+One window: item-count and item-size (MB) fields (each with presets), an **APPLY** button, an auto-start checkbox, and a live log. Double-click `ClipboardUnlocker.exe` → accept UAC → pick limits → **APPLY**.
+
+Run the source directly instead of the exe:
 
 ```powershell
-# run the script directly instead of the exe
 powershell -ExecutionPolicy Bypass -File .\ClipboardUnlocker.ps1
-
-# headless (used internally by the logon scheduled task)
-powershell -ExecutionPolicy Bypass -File .\ClipboardUnlocker.ps1 -Silent -Limit 255 -SizeLimitMB 64
 ```
 
-Improvements over the raw scripts below:
-
-- **Auto-start = scheduled task at logon** (`RunLevel Highest`) — runs silently and elevated with no UAC popup. The GUI and `Install-Persistence.ps1` register the same `ClipboardUnlocker` task, so either entry point (and removing it) behaves identically.
-- **Auto-elevation** — the exe's manifest requests UAC itself; no need to "run as administrator" manually.
-- **Configurable item-size limit** (`-SizeLimitMB`, default 64) instead of a hardcoded value.
-- **Cleaner service restart** — tries `Start-Service` first, only falls back to the `Win+V` nudge if needed.
-- **`-Silent` mode** for unattended runs (what the scheduled task actually invokes).
-
-### Scripts (advanced / no exe)
+### Command line (headless)
 
 ```powershell
-# One-time patch (until reboot)
-.\Patch-ClipboardHistory.ps1
+# apply once, no window (lasts until reboot)
+ClipboardUnlocker.exe -Silent -Limit 255 -SizeLimitMB 64
 
-# Persistent: register a logon scheduled task (silent, elevated, no UAC prompt)
-.\Install-Persistence.ps1
+# enable auto-start at logon (silent, elevated scheduled task)
+ClipboardUnlocker.exe -Install
 
-# Remove persistence
-.\Uninstall-Persistence.ps1
+# disable auto-start
+ClipboardUnlocker.exe -Uninstall
 ```
+
+Swap `ClipboardUnlocker.exe` for `powershell -ExecutionPolicy Bypass -File .\ClipboardUnlocker.ps1` to run the raw script. Every mode self-elevates (UAC) if not already running as admin.
 
 | Parameter | Default | Description |
-|-----------|---------|--------------|
-| `-NewItemLimit` | `255` | New max item count (1–65535) |
-| `-NewSizeLimitMB` | `64` | New per-item size cap in MB (1–1900), lifting the built-in 4 MB limit |
+|-----------|---------|-------------|
+| `-Limit` | `255` | Max item count (1–65535) |
+| `-SizeLimitMB` | `64` | Per-item size cap in MB (1–512), lifting the built-in 4 MB limit |
+| `-Silent` | — | Patch once without the GUI |
+| `-Install` / `-Uninstall` | — | Register / remove the logon auto-start task |
+
+Notable behaviours:
+
+- **Auto-start = scheduled task at logon** (`RunLevel Highest`) — silent and elevated, no UAC popup. The GUI checkbox and `-Install` register the same `ClipboardUnlocker` task.
+- **Auto-elevation** — the exe's manifest requests UAC; the raw script relaunches itself elevated.
+- **Cleaner service restart** — tries `Start-Service` first, only falls back to a brief `Win+V` nudge if that fails.
 
 ## Building the exe yourself
 
