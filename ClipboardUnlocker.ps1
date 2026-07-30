@@ -268,13 +268,15 @@ public class MemPatcher {
             if (isWritable && regionSize <= maxRegionBytes) {
                 try {
                     const int chunkSize = 4 * 1024 * 1024;
-                    byte[] buf = new byte[chunkSize];   // reused across chunks (avoids per-chunk GC churn)
-                    for (long pos = 0; pos < regionSize; pos += chunkSize) {
+                    int overlap = maxOff + 4;              // so a struct straddling a chunk edge is caught in the next chunk
+                    long step = chunkSize - overlap;
+                    byte[] buf = new byte[chunkSize];      // reused across chunks (avoids per-chunk GC churn)
+                    for (long pos = 0; pos < regionSize; pos += step) {
                         int toRead = (int)Math.Min((long)chunkSize, regionSize - pos);
                         int rd;
                         IntPtr chunkBase = new IntPtr(mbi.BaseAddress.ToInt64() + pos);
                         if (ReadProcessMemory(hProcess, chunkBase, buf, toRead, out rd)) {
-                            int limit = rd - (maxOff + 4);
+                            int limit = rd - overlap;
                             for (int i = 0; i <= limit; i += 8) {
                                 if (BitConverter.ToUInt32(buf, i + o4)  == 0x00400000 &&
                                     BitConverter.ToUInt32(buf, i + o5)  == 0x00500000 &&
@@ -290,6 +292,7 @@ public class MemPatcher {
                                 }
                             }
                         }
+                        if (toRead < chunkSize) break;   // reached the end of this region
                     }
                 } catch { /* skip a region that can't be safely read/written; keep scanning */ }
             }
@@ -301,7 +304,8 @@ public class MemPatcher {
 '@
 function Initialize-MemPatcher {
     if (-not ('MemPatcher' -as [type])) {
-        Add-Type -TypeDefinition $script:CSharp -Language CSharp
+        try { Add-Type -TypeDefinition $script:CSharp -Language CSharp -ErrorAction Stop }
+        catch { throw "Failed to compile the memory patcher (C#/Add-Type may be blocked by policy or AMSI): $($_.Exception.Message)" }
     }
 }
 
@@ -416,16 +420,10 @@ function Invoke-ClipboardPatch {
     Write-Log "Restarting service..." 'info'
     Stop-Service $svc.Name -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
-    try { Start-Service $svc.Name -ErrorAction Stop } catch {
-        # Fallback nudge only when interactive -- never SendKeys headlessly (the scheduled task
-        # runs at the logon/lock screen, where a stray Win+V could land in the wrong window).
-        if (-not $Silent) {
-            try {
-                $shell = New-Object -ComObject wscript.shell
-                $shell.SendKeys('#v'); Start-Sleep -Seconds 2; $shell.SendKeys('{ESC}'); Start-Sleep -Seconds 1
-            } catch { }
-        }
-    }
+    # If Start-Service fails, don't inject keystrokes -- just log it. The kill-and-respawn
+    # step below reliably brings the (per-user) service back in both GUI and headless modes.
+    try { Start-Service $svc.Name -ErrorAction Stop }
+    catch { Write-Log "Start-Service failed: $($_.Exception.Message)" 'warn' }
     Start-Sleep -Seconds 1
 
     $svc = Get-Service | Where-Object { $_.Name -like 'cbdhsvc_*' } | Select-Object -First 1
